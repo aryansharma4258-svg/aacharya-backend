@@ -1,53 +1,100 @@
 // 🧠 MAIN ENTRY POINT
-export function getAIResponse(userMessage) {
+export function getAIResponse(userMessage, context = {}) {
   const msg = userMessage.toLowerCase().trim();
 
-  // ===== 🌫️ AQI AUTO DETECTION =====
-  if (msg.includes("aqi") || msg.includes("air quality")) {
-    return handleAQI();
+  /* ================== HANDLE PENDING INPUT ================== */
+
+  // YES / NO follow-ups
+  if (context.waitingFor === "YES_NO_SLEEP") {
+    if (isYes(msg)) return sleepYes(context);
+    if (isNo(msg)) return sleepNo(context);
+    return "❓ Please reply with Yes or No.";
   }
 
-  // ===== 🥗 DIET INTENT =====
-  if (hasAny(msg, ["diet", "meal plan", "what to eat", "food plan"])) {
-    return `
-🥗 I can help you with a proper diet.
+  if (context.waitingFor === "YES_NO_DIET") {
+    if (isYes(msg)) return junkYes(context);
+    if (isNo(msg)) return junkNo(context);
+    return "❓ Please reply with Yes or No.";
+  }
 
-❓ Please choose your age group:
-• Teenager
-• Adult
-• Senior
+  if (context.waitingFor === "YES_NO_LUNG_FOOD") {
+    if (isYes(msg)) return lungFoodYes(context);
+    if (isNo(msg)) {
+      context.waitingFor = null;
+      return "👍 Okay. Let me know if you want help with diet, sleep, or stress.";
+    }
+    return "❓ Please reply with Yes or No.";
+  }
+
+  // AGE selection
+  if (context.waitingFor === "AGE_SELECT") {
+    context.waitingFor = null;
+    if (isTeen(msg)) return teenagerDiet();
+    if (isAdult(msg)) return adultDiet();
+    if (isSenior(msg)) return seniorDiet();
+    return "❓ Type Teenager, Adult, or Senior.";
+  }
+
+  /* ================== INTENT DETECTION ================== */
+
+  // 🌫️ AQI / AIR
+  if (hasAny(msg, [
+    "aqi", "air", "air quality", "pollution",
+    "smog", "breathing", "lungs", "polluted"
+  ])) {
+    context.waitingFor = "YES_NO_LUNG_FOOD";
+    return handleAQIFallback();
+  }
+
+  // 🥗 DIET
+  if (hasAny(msg, [
+    "diet", "food", "meal", "what to eat",
+    "nutrition", "khana", "meal plan"
+  ])) {
+    context.waitingFor = "AGE_SELECT";
+    return `
+🥗 I can help you with a simple, practical diet.
+
+❓ Select your age group:
+Teenager / Adult / Senior
 `;
   }
 
-  // ===== 🧑 AGE SELECTION =====
-  if (msg === "teenager") return teenagerDiet();
-  if (msg === "adult") return adultDiet();
-  if (msg === "senior") return seniorDiet();
+  /* ================== ISSUE DETECTION ================== */
 
-  // ===== 🩺 ISSUE DETECTION =====
   const issues = [];
 
-  if (hasAny(msg, ["tired", "thakaan", "low energy", "fatigue"]))
+  if (hasAny(msg, ["tired", "thakaan", "low energy", "fatigue", "exhausted"]))
     issues.push("low_energy");
 
-  if (hasAny(msg, ["junk", "fast food", "burger", "pizza", "cola"]))
+  if (hasAny(msg, ["junk", "fast food", "pizza", "burger", "cola", "chips"]))
     issues.push("poor_diet");
 
-  if (hasAny(msg, ["sleep", "late", "neend", "insomnia"]))
+  if (hasAny(msg, ["sleep", "late night", "neend", "insomnia", "midnight"]))
     issues.push("poor_sleep");
 
-  if (hasAny(msg, ["stress", "anxious", "tension", "pareshan"]))
+  if (hasAny(msg, ["stress", "tension", "anxious", "overthinking", "pareshan"]))
     issues.push("stress");
 
   if (issues.length === 0) return defaultReply();
 
-  // ===== 🧩 BUILD RESPONSE =====
+  /* ================== BUILD RESPONSE ================== */
+
   let reply = "";
   reply += detectSummary(issues);
   reply += explainWhy(issues);
   reply += actionPlan(issues);
   reply += whyThisHelps(issues);
-  reply += followUpQuestion(issues);
+
+  if (issues.includes("poor_sleep")) {
+    context.waitingFor = "YES_NO_SLEEP";
+    reply += "❓ Do you usually sleep after midnight? (Yes / No)";
+  } else if (issues.includes("poor_diet")) {
+    context.waitingFor = "YES_NO_DIET";
+    reply += "❓ Do you eat junk food more than 3 times a week? (Yes / No)";
+  } else {
+    reply += "❓ What do you want help with next — diet, sleep, or stress?";
+  }
 
   return reply;
 }
@@ -58,23 +105,45 @@ function hasAny(text, keywords) {
   return keywords.some(k => text.includes(k));
 }
 
+function isYes(msg) {
+  return ["yes", "y", "haan", "ha"].includes(msg);
+}
+
+function isNo(msg) {
+  return ["no", "n", "nahi"].includes(msg);
+}
+
+function isTeen(msg) {
+  return ["teen", "teenager", "student"].includes(msg);
+}
+
+function isAdult(msg) {
+  return ["adult", "working", "job"].includes(msg);
+}
+
+function isSenior(msg) {
+  return ["senior", "old", "elder"].includes(msg);
+}
+
+/* ================= CORE RESPONSE BUILDERS ================= */
+
 function detectSummary(issues) {
   let line = "🔍 What I’m noticing:\n";
   if (issues.includes("low_energy")) line += "• Low energy levels\n";
-  if (issues.includes("poor_diet")) line += "• Diet quality seems off\n";
-  if (issues.includes("poor_sleep")) line += "• Sleep may be insufficient\n";
-  if (issues.includes("stress")) line += "• Mental stress present\n";
+  if (issues.includes("poor_diet")) line += "• Unhealthy food habits\n";
+  if (issues.includes("poor_sleep")) line += "• Poor sleep routine\n";
+  if (issues.includes("stress")) line += "• Mental stress\n";
   return line + "\n";
 }
 
 function explainWhy(issues) {
   let line = "🧠 Why this happens:\n";
   if (issues.includes("poor_diet"))
-    line += "• Junk food spikes sugar → quick energy crash\n";
+    line += "• Junk food causes quick energy crash\n";
   if (issues.includes("poor_sleep"))
-    line += "• Poor sleep reduces recovery\n";
+    line += "• Less sleep reduces recovery & focus\n";
   if (issues.includes("stress"))
-    line += "• Stress hormones drain energy\n";
+    line += "• Stress hormones drain your energy\n";
   return line + "\n";
 }
 
@@ -85,7 +154,7 @@ function actionPlan(issues) {
   if (issues.includes("poor_sleep"))
     line += "• Sleep 30 minutes earlier tonight\n";
   if (issues.includes("low_energy"))
-    line += "• 10-minute light walk\n";
+    line += "• 10–15 min light walk\n";
   if (issues.includes("stress"))
     line += "• 5 minutes slow breathing\n";
   return line + "\n";
@@ -93,106 +162,123 @@ function actionPlan(issues) {
 
 function whyThisHelps(issues) {
   let line = "🧠 Why this helps:\n";
-
   if (issues.includes("poor_diet"))
-    line += "• Balanced food stabilizes blood sugar\n";
-
+    line += "• Stable blood sugar = stable energy\n";
   if (issues.includes("poor_sleep"))
-    line += "• Proper sleep improves immunity & focus\n";
-
+    line += "• Better sleep improves immunity & mood\n";
   if (issues.includes("stress"))
-    line += "• Breathing lowers stress hormones\n";
-
+    line += "• Breathing calms the nervous system\n";
   if (issues.includes("low_energy"))
-    line += "• Light movement boosts circulation\n";
-
+    line += "• Movement boosts circulation\n";
   return line + "\n";
-}
-
-function followUpQuestion(issues) {
-  if (issues.includes("poor_sleep"))
-    return "❓ Do you usually sleep after midnight?";
-  if (issues.includes("poor_diet"))
-    return "❓ Do you eat junk food more than 3 times a week?";
-  return "❓ Want help with diet, sleep, or stress?";
 }
 
 function defaultReply() {
   return `
-I hear you.
+I’m here to help.
 
-• Eat balanced meals
-• Stay active
-• Sleep well
+I can guide you with:
+• Diet
+• Sleep
+• Stress
+• Air quality effects
 
-❓ What would you like help with — diet, sleep, or stress?
+❓ What do you want to talk about?
 `;
 }
 
-/* ================= 🌫️ AQI LOGIC ================= */
+/* ================= AQI FALLBACK ================= */
 
-function getSimulatedAQI() {
-  const r = Math.random();
-  if (r < 0.33) return { level: "good", label: "Good (0–50)" };
-  if (r < 0.66) return { level: "moderate", label: "Moderate (51–100)" };
-  return { level: "poor", label: "Poor (101+)" };
+function handleAQIFallback() {
+  return `
+🌫️ Air Quality Insight (General)
+
+In many Indian cities, air quality usually stays in the MODERATE to POOR range.
+
+⚠️ Possible effects:
+• Eye & throat irritation
+• Breathing discomfort
+• Low energy
+
+🛡️ What you can do today:
+• Avoid outdoor exercise
+• Drink warm water
+• Wear a mask if going out
+
+❓ Do you want food tips to protect your lungs? (Yes / No)
+`;
 }
 
-function handleAQI() {
-  const aqi = getSimulatedAQI();
-  const ageGroup = "senior"; // hackathon-safe default
+/* ================= FOLLOW-UP RESPONSES ================= */
 
-  let reply = `🌫️ Air Quality Update:\n• AQI: ${aqi.label}\n\n`;
+function sleepYes(context) {
+  context.waitingFor = null;
+  return `
+😴 Sleeping late affects recovery and focus.
 
-  if (aqi.level === "good")
-    reply += "✅ Air is safe. Outdoor activity is fine.\n";
+✅ Try tonight:
+• Sleep 30 minutes earlier
+• Avoid phone 1 hour before bed
 
-  if (aqi.level === "moderate")
-    reply += "⚠️ Avoid heavy outdoor exercise.\n";
-
-  if (aqi.level === "poor")
-    reply += "🚨 Avoid outdoor activity. Wear a mask.\n";
-
-  reply += ageAQIWarning(ageGroup, aqi.level);
-  reply += "\nℹ️ Preventive guidance only.";
-
-  return reply;
+❓ Want help with diet or stress next?
+`;
 }
 
-function ageAQIWarning(ageGroup, level) {
-  if (level !== "poor") return "";
+function sleepNo(context) {
+  context.waitingFor = null;
+  return `
+👍 Good sleep timing helps a lot.
 
-  if (ageGroup === "teenager")
-    return "\n⚠️ Teenagers: Avoid outdoor sports today.";
-
-  if (ageGroup === "adult")
-    return "\n⚠️ Adults: Prefer indoor workouts.";
-
-  if (ageGroup === "senior")
-    return "\n🚨 Seniors: Avoid going out. Steam inhalation helps.";
-
-  return "";
+❓ Do you want help with diet or stress?
+`;
 }
 
-/* ================= 🥗 DIET PLANS ================= */
+function junkYes(context) {
+  context.waitingFor = null;
+  return `
+🍔 Frequent junk food causes energy crashes.
+
+✅ Small fix:
+• Replace one junk meal with home food
+• Add fruits or curd daily
+
+❓ Want help with sleep or stress?
+`;
+}
+
+function junkNo(context) {
+  context.waitingFor = null;
+  return `
+👍 That’s good.
+
+❓ Want help with sleep or stress?
+`;
+}
+
+function lungFoodYes(context) {
+  context.waitingFor = null;
+  return `
+🥗 Foods good for lungs:
+• Turmeric milk
+• Warm soups
+• Fruits like orange & apple
+
+❓ Want a full diet plan? Type Diet
+`;
+}
+
+/* ================= DIET PLANS ================= */
 
 function teenagerDiet() {
   return `
 🥗 Teenager Diet Plan
 
-Breakfast:
-• Milk + fruits + poha/roti
+• Milk, fruits, poha/roti
+• Dal, rice/roti, vegetables
+• Fruits or nuts in evening
+• Light dinner
 
-Lunch:
-• Dal, rice/roti, vegetables, curd
-
-Evening:
-• Fruits or nuts
-
-Dinner:
-• Light home food
-
-🎯 Focus: Growth, energy, concentration
+🎯 Focus: Growth, energy, focus
 `;
 }
 
@@ -200,19 +286,12 @@ function adultDiet() {
   return `
 🥗 Adult Diet Plan
 
-Breakfast:
-• Eggs / sprouts / oats
-
-Lunch:
+• Eggs/sprouts/oats
 • Roti, sabzi, dal, salad
+• Fruits or green tea
+• Light protein dinner
 
-Evening:
-• Fruits / green tea
-
-Dinner:
-• Light protein-rich meal
-
-🎯 Focus: Fitness & energy balance
+🎯 Focus: Fitness & energy
 `;
 }
 
@@ -220,21 +299,15 @@ function seniorDiet() {
   return `
 🥗 Senior Citizen Diet Plan
 
-Breakfast:
-• Soft foods, milk, fruits
-
-Lunch:
-• Easy-to-digest dal, rice, vegetables
-
-Evening:
+• Soft breakfast, fruits
+• Easy-to-digest lunch
 • Nuts / herbal tea
+• Very light dinner
 
-Dinner:
-• Very light meal
-
-🎯 Focus: Digestion, immunity, bones
+🎯 Focus: Digestion & immunity
 `;
 }
+
 
 
 
